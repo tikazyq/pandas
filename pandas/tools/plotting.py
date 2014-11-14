@@ -209,7 +209,7 @@ plot_params = _Options()
 
 def scatter_matrix(frame, alpha=0.5, figsize=None, ax=None, grid=False,
                    diagonal='hist', marker='.', density_kwds=None,
-                   hist_kwds=None, range_padding=0.05, **kwds):
+                   hist_kwds=None, range_padding=0.05, cat_col=None, **kwds):
     """
     Draw a matrix of scatter plots.
 
@@ -237,6 +237,8 @@ def scatter_matrix(frame, alpha=0.5, figsize=None, ax=None, grid=False,
         relative extension of axis range in x and y
         with respect to (x_max - x_min) or (y_max - y_min),
         default 0.05
+    cat_col : int or str, optional
+        Column used to categorise scatter points
     kwds : other plotting keyword arguments
         To be passed to scatter function
 
@@ -247,6 +249,16 @@ def scatter_matrix(frame, alpha=0.5, figsize=None, ax=None, grid=False,
     """
     import matplotlib.pyplot as plt
     from matplotlib.artist import setp
+
+    if cat_col is not None:
+        cat = set(frame[cat_col])
+        # if len(cat) > 50:
+        #     raise ValueError("Number of unique categories should not be over 10")
+        cat_mask = [frame[cat_col] == c for c in cat]
+        colors = _get_standard_colors(num_colors=len(cat))
+        frame = frame.drop(cat_col, axis=1)
+    else:
+        cat, colors, cat_mask = [None], [plt.rcParams['patch.facecolor']], [[True]*frame.shape[0]]
 
     df = frame._get_numeric_data()
     n = df.columns.size
@@ -278,30 +290,33 @@ def scatter_matrix(frame, alpha=0.5, figsize=None, ax=None, grid=False,
         for j, b in zip(lrange(n), df.columns):
             ax = axes[i, j]
 
-            if i == j:
-                values = df[a].values[mask[a].values]
+            for k, cat_val in enumerate(cat):
+                if i == j:
+                    values = df[a][mask[a].values & cat_mask[k]].values
 
-                # Deal with the diagonal by drawing a histogram there.
-                if diagonal == 'hist':
-                    ax.hist(values, **hist_kwds)
+                    # Deal with the diagonal by drawing a histogram there.
+                    if diagonal == 'hist':
+                        ax.hist(values, **hist_kwds)
 
-                elif diagonal in ('kde', 'density'):
-                    from scipy.stats import gaussian_kde
-                    y = values
-                    gkde = gaussian_kde(y)
-                    ind = np.linspace(y.min(), y.max(), 1000)
-                    ax.plot(ind, gkde.evaluate(ind), **density_kwds)
+                    elif diagonal in ('kde', 'density'):
+                        from scipy.stats import gaussian_kde
+                        y = values
+                        gkde = gaussian_kde(y)
+                        ind = np.linspace(y.min(), y.max(), 1000)
+                        ax.plot(ind, gkde.evaluate(ind), label=cat_val,
+                                c=colors[k], **density_kwds)
 
-                ax.set_xlim(boundaries_list[i])
+                    ax.set_xlim(boundaries_list[i])
 
-            else:
-                common = (mask[a] & mask[b]).values
+                else:
+                    common = (mask[a] & mask[b] & cat_mask[k]).values
+                    kwds['c'] = colors[k]
+                    ax.scatter(df[b][common], df[a][common],
+                               marker=marker, alpha=alpha, label=cat_val,
+                               **kwds)
 
-                ax.scatter(df[b][common], df[a][common],
-                           marker=marker, alpha=alpha, **kwds)
-
-                ax.set_xlim(boundaries_list[j])
-                ax.set_ylim(boundaries_list[i])
+            ax.set_xlim(boundaries_list[j])
+            ax.set_ylim(boundaries_list[i])
 
             ax.set_xlabel('')
             ax.set_ylabel('')
@@ -318,6 +333,9 @@ def scatter_matrix(frame, alpha=0.5, figsize=None, ax=None, grid=False,
     for ax in axes.flat:
         setp(ax.get_xticklabels(), fontsize=8)
         setp(ax.get_yticklabels(), fontsize=8)
+
+    if cat_col is not None:
+        axes[0, n-1].legend(fancybox=True,ncol=1,fontsize='x-small',scatterpoints=1)
 
     return axes
 
